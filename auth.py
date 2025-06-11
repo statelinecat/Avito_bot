@@ -11,8 +11,8 @@ from selenium.webdriver.common.action_chains import ActionChains
 import time
 import random
 
-PHONE_NUMBER = "+79858037246"
-PASSWORD = "al36avitodelis"
+PHONE_NUMBER = "8037246"
+PASSWORD = "avitodelis"
 
 
 def run_avito_auth():
