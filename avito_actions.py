@@ -1,69 +1,34 @@
-from data_storage import load_ids, save_id, PRIVATE_SELLERS_FILE
-import time
-import random
+# avito_actions.py
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains
+import time
+import random
+import datetime
+from data_storage import load_ids, save_id
+from messenger_handler import write_to_delay_file
 
-
-def get_items(driver):
-    """Получаем список объявлений с улучшенной обработкой"""
-    try:
-        print("Загружаем страницу с объявлениями...")
-        driver.get("https://www.avito.ru/kostroma/nedvizhimost")
-
-        # Добавляем явные ожидания
-        WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.XPATH, '//div[@data-marker="item"]'))
-        )
-
-        # Прокручиваем страницу для загрузки всех объявлений
-        last_height = driver.execute_script("return document.body.scrollHeight")
-        while True:
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2)
-            new_height = driver.execute_script("return document.body.scrollHeight")
-            if new_height == last_height:
-                break
-            last_height = new_height
-
-        items = driver.find_elements(By.XPATH, '//div[@data-marker="item"]')
-        print(f"Найдено {len(items)} объявлений")
-        return items
-
-    except Exception as e:
-        print(f"Ошибка при получении объявлений: {str(e)}")
-        driver.save_screenshot("get_items_error.png")
-        return []
+def send_messages(driver, item_id):
+    """Функция для отправки сообщений"""
+    print(f"Отправка сообщения для объявления {item_id}")
+    # Реализация будет добавлена позже
+    pass
 
 def process_avito_pages(driver):
-    """Основная функция обработки объявлений"""
-    processed_count = 0
-    max_ads_per_day = 20  # Лимит объявлений в день
+    """Основной перебор объявлений"""
+    print("Начало обработки объявлений")
+    # Реализация будет добавлена позже
+    pass
 
-    print("Начинаем обработку объявлений...")
-    try:
-        ads = get_items(driver)
-        if not ads:
-            print("Не найдено объявлений для обработки")
-            return
+def get_items(driver):
+    """Получение объявлений"""
+    print("Получение списка объявлений")
+    # Реализация будет добавлена позже
+    return []
 
-        for ad in ads:
-            try:
-                ad_url = ad.get_attribute('href')
-                if ad_url and ad_url not in load_ids(PRIVATE_SELLERS_FILE):
-                    print(f"Обрабатываем объявление: {ad_url}")
-                    # Здесь должна быть логика обработки объявления
-                    save_id(PRIVATE_SELLERS_FILE, ad_url)
-                    processed_count += 1
-                    time.sleep(random.uniform(5, 10))
-
-                    if processed_count >= max_ads_per_day:
-                        break
-            except Exception as e:
-                print(f"Ошибка при обработке объявления: {str(e)}")
-                continue
-
-        print(f"Обработано {processed_count} объявлений за сегодня.")
-    except Exception as e:
-        print(f"Ошибка в основном цикле обработки: {str(e)}")
+def reset_daily_state():
+    """Сброс дневного состояния"""
+    print("Сброс дневного состояния")
+    # Реализация будет добавлена позже
+    pass

@@ -30,9 +30,7 @@ def write_to_file(filename, data):
 
 def write_to_delay_file(filename, url, timestamp, last_message=""):
     try:
-    
         remove_from_delay_file(filename, url)
-      
         with open(filename, 'a') as file:
             file.write(f"{url}|{timestamp}|{last_message}\n")
     except Exception as e:
@@ -57,10 +55,31 @@ def remove_from_file(filename, data):
         print(f"Файл {filename} не найден.")
 
 def get_last_message_text(driver):
-    # получение послдених сообщений клиента
+    """Заглушка для получения последнего сообщения клиента"""
+    # TODO: Реализовать получение последнего сообщения
+    print("Получение последнего сообщения (заглушка)")
+    return ""
+    # Пример реализации:
+    # try:
+    #     last_msg = WebDriverWait(driver, 10).until(
+    #         EC.presence_of_element_located((By.CSS_SELECTOR, "div.message-text:last-child"))
+    #     return last_msg.text
+    # except Exception:
+    #     return ""
 
 def send_message(driver, message):
-    # функция отправки сообщений
+    """Заглушка для отправки сообщений"""
+    # TODO: Реализовать отправку сообщения
+    print(f"Отправка сообщения: {message} (заглушка)")
+    # Пример реализации:
+    # try:
+    #     input_field = WebDriverWait(driver, 10).until(
+    #         EC.presence_of_element_located((By.CSS_SELECTOR, "textarea.message-input")))
+    #     input_field.send_keys(message)
+    #     send_btn = driver.find_element(By.CSS_SELECTOR, "button.send-button")
+    #     send_btn.click()
+    # except Exception as e:
+    #     print(f"Ошибка при отправке сообщения: {e}")
 
 def get_wait_time(delay_entry):
     try:
@@ -72,7 +91,21 @@ def get_wait_time(delay_entry):
         return None
 
 def handle_dialog(driver, dialog, dialog_url, is_unread=False):
-    # основная обработка всех диалогов
+    """Заглушка для обработки диалога"""
+    # TODO: Реализовать обработку диалога
+    print(f"Обработка диалога {dialog_url} (заглушка)")
+    # Пример реализации:
+    # 1. Проверить, нужно ли отвечать в этом диалоге
+    # 2. Определить тип ответа (на риелтора/не риелтора)
+    # 3. Отправить соответствующий ответ
+    # 4. Записать в файл задержек
 
 def check_unread_messages(driver):
-    # проверка непрочитанных диалогов
+    """Заглушка для проверки непрочитанных сообщений"""
+    # TODO: Реализовать проверку непрочитанных сообщений
+    print("Проверка непрочитанных сообщений (заглушка)")
+    # Пример реализации:
+    # 1. Открыть раздел сообщений
+    # 2. Найти все непрочитанные диалоги
+    # 3. Для каждого вызвать handle_dialog()
+    # 4. Проверить диалоги из файла задержек
