@@ -1,134 +1,72 @@
-import pickle
+import json
 import os
 import time
-import random
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from config import EMAIL, PASSWORD
 
-PHONE_NUMBER = "ak12@bk.ru"
-PASSWORD = "Al36avitodelis"
-COOKIES_FILE = "cookies.pkl"
+COOKIES_FILE = "cookies.json"
 
-def save_cookies(driver, path=COOKIES_FILE):
-    with open(path, "wb") as file:
-        pickle.dump(driver.get_cookies(), file)
-    print("Cookies сохранены.")
+def save_cookies_from_driver(driver):
+    cookies = driver.get_cookies()
+    with open(COOKIES_FILE, "w") as f:
+        json.dump(cookies, f)
 
-def load_cookies(driver, path=COOKIES_FILE):
-    if os.path.exists(path):
-        with open(path, "rb") as file:
-            cookies = pickle.load(file)
-        for cookie in cookies:
-            if "expiry" in cookie:
-                del cookie["expiry"]  # Удаляем, чтобы не было ошибок
-            driver.add_cookie(cookie)
-        print("Cookies загружены.")
-        return True
-    return False
+def load_cookies():
+    if os.path.exists(COOKIES_FILE):
+        with open(COOKIES_FILE, "r") as f:
+            return json.load(f)
+    return None
 
-def run_avito_auth():
+def update_cookies():
     options = Options()
-    options.add_argument("--start-maximized")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
-    options.add_argument("--ignore-certificate-errors")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--no-sandbox")
+    # 🟡 Убираем headless для отладки
+    # options.add_argument("--headless")
+    options.add_argument("--disable-blink-features=AutomationControlled")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    driver.get("https://www.avito.ru/")
-    time.sleep(2)
-
-    # Если есть cookies — пробуем зайти без авторизации
-    if load_cookies(driver):
-        driver.get("https://www.avito.ru/")
-        try:
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-marker="header/menu-profile"]'))
-            )
-            print("Успешный вход с использованием cookies.")
-            return driver
-        except:
-            print("Cookies недействительны. Авторизация будет выполнена вручную.")
+    driver.get("https://www.avito.ru/#login?authsrc=h")
 
     try:
-        # Нажимаем "Вход и регистрация"
-        login_button = WebDriverWait(driver, 15).until(
+        print("Ждём кнопку входа...")
+        login_btn = WebDriverWait(driver, 15).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, 'a[data-marker="login-button"]'))
         )
-        login_button.click()
+        login_btn.click()
+        print("Клик по кнопке входа выполнен.")
 
-        # Переключаемся на вход по email
+        print("Переход на вкладку Email...")
         email_tab = WebDriverWait(driver, 15).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, 'div[data-marker="popup-tabs.switchToEmail"]'))
         )
         email_tab.click()
 
-        # Вводим email
-        email_input = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.NAME, 'login'))
-        )
-        email_input.clear()
-        email_input.send_keys(PHONE_NUMBER)
+        print("Вводим логин...")
+        email_input = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, 'login')))
+        email_input.send_keys(EMAIL)
 
-        continue_button = driver.find_element(By.CSS_SELECTOR, 'button[data-marker="login-form/continue"]')
-        continue_button.click()
+        driver.find_element(By.CSS_SELECTOR, 'button[data-marker="login-form/continue"]').click()
 
-        # Вводим пароль
-        password_input = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.NAME, 'password'))
-        )
-        password_input.clear()
+        print("Вводим пароль...")
+        password_input = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, 'password')))
         password_input.send_keys(PASSWORD)
 
-        submit_button = driver.find_element(By.CSS_SELECTOR, 'button[data-marker="login-form/submit"]')
-        submit_button.click()
+        driver.find_element(By.CSS_SELECTOR, 'button[data-marker="login-form/submit"]').click()
 
-        # Ожидаем вход
+        print("Ожидаем вход...")
         WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-marker="header/menu-profile"]'))
         )
 
-        # Проверка капчи (если есть)
-        if "captcha" in driver.page_source.lower():
-            print("Обнаружена капча! Требуется ручной ввод.")
-            time.sleep(60)  # Дайте себе время на ручной ввод
-
-        print("Авторизация прошла успешно.")
-        time.sleep(random.randint(2, 3))
-
+        save_cookies_from_driver(driver)
+        print("Cookies обновлены.")
     except Exception as e:
-        print(f"Ошибка во время авторизации: {e}")
+        print(f"Ошибка авторизации: {e}")
+    finally:
         driver.quit()
-        return None
 
-    # Выбор второго профиля
-    try:
-        new_block = WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-marker="header/menu-profile"]'))
-        )
-        actions = ActionChains(driver)
-        actions.move_to_element(new_block).perform()
-
-        profile_switch_second = WebDriverWait(driver, 30).until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, 'div[data-marker="profile-switch/second"] span[role="button"]'))
-        )
-        print("Элемент второго профиля найден. Переключаемся...")
-        driver.execute_script("arguments[0].click();", profile_switch_second)
-        actions.reset_actions()
-        time.sleep(random.randint(3, 5))
-
-    except Exception as e:
-        print(f"Ошибка при выборе профиля: {e}")
-        driver.quit()
-        return None
-
-    save_cookies(driver)
-    return driver
