@@ -1,146 +1,213 @@
-import json
-import time
+import asyncio
 import random
-from playwright.sync_api import sync_playwright
+import sqlite3
+import os
+from datetime import datetime
+from playwright.async_api import async_playwright
 
-# === Настройки ===
-USERNAME = "ak12@bk.ru"  # Не используется, если используешь cookies
-PASSWORD = "Al36avito"           # Не используется, если используешь cookies
-CITY = "kostroma"                    # Город для поиска недвижимости
-MAX_MESSAGES = 20                    # Максимум сообщений в день
-HEADLESS = False                     # True - без открытия окна браузера
+# Конфигурация
+DB_PATH = 'avito_messages.db'
+CITY_URL = 'https://www.avito.ru/kostroma/nedvizhimost'
+HEADLESS = False
+MAX_ADS = 5
+DELAY_BETWEEN_ACTIONS = 5
+
+# Папка для логов
+DEBUG_DIR = 'debug_logs'
+os.makedirs(DEBUG_DIR, exist_ok=True)
+
+# Сообщения
+MESSAGE_VARIANTS = [
+    ["Здравствуйте!", "Заинтересовало ваше объявление.", "Еще актуально?"],
+    ["Добрый день!", "Понравилось ваше предложение.", "Еще продаете?"]
+]
 
 
-# === Функция восстановления сессии через cookies или вход ===
-def login_avito(page):
-    print("Проверяем наличие cookies...")
+def log(msg):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {msg}")
+
+
+def init_db():
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS messages (
+                ad_id TEXT PRIMARY KEY,
+                seller_id TEXT,
+                chat_url TEXT,
+                last_message_time DATETIME,
+                responded INTEGER DEFAULT 0,
+                reminded INTEGER DEFAULT 0
+            )
+        ''')
+
+
+def save_message(ad_id, seller_id, chat_url):
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute('''
+            INSERT OR IGNORE INTO messages (ad_id, seller_id, chat_url, last_message_time)
+            VALUES (?, ?, ?, datetime('now'))
+        ''', (ad_id, seller_id, chat_url))
+
+
+async def save_screenshot(page, prefix="debug"):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(DEBUG_DIR, f"{prefix}_{timestamp}.png")
+    await page.screenshot(path=path, full_page=True)
+    log(f"📸 Скриншот сохранен: {path}")
+
+
+async def click_write_message_button(page):
     try:
-        with open("avito_state.json", "r"):
-            pass
-        print("Загружаем сохранённую сессию...")
-        context = page.context()
-        context.storage_state(path="avito_state.json")
-        page.goto("https://www.avito.ru/profile")
-        time.sleep(3)
+        # Основной селектор для кнопки "Написать сообщение"
+        write_button = await page.wait_for_selector(
+            "button:has-text('Написать сообщение')",
+            timeout=15000
+        )
 
-        if "profile" in page.url or "Профиль" in page.title():
-            print("✅ Авторизация успешна через cookies")
-            return True
-    except FileNotFoundError:
-        print("❌ Cookies не найдены. Вход будет выполнен вручную.")
+        if not write_button:
+            log("❌ Кнопка не найдена по основному селектору")
+            return False
 
-    print("Выполняем вход вручную... Зайдите в аккаунт.")
-    page.goto("https://www.avito.ru/profile")
-    input("👉 Нажмите Enter после входа в аккаунт...")
+        log("🖱️ Нажимаем кнопку 'Написать сообщение'")
+        await write_button.click()
+        await page.wait_for_timeout(DELAY_BETWEEN_ACTIONS * 1000)
 
-    # Сохраняем сессию после входа
-    context = page.context()
-    context.storage_state(path="avito_state.json")
-    print("✅ Сессия сохранена")
-    return True
+        # Проверяем, открылся ли чат
+        chat_loaded = await page.wait_for_selector(
+            "textarea[data-marker='message-input']",
+            timeout=15000
+        )
+        if not chat_loaded:
+            log("❌ Чат не открылся после нажатия кнопки")
+            await save_screenshot(page, "chat_not_opened")
+            return False
 
-
-# === Получение объявлений от частных лиц ===
-def get_private_ads(page):
-    print(f"🔍 Ищем объявления от частных лиц в городе {CITY}...")
-    url = f"https://www.avito.ru/{CITY}/kvartiry/prodam?user_type=private"
-
-    try:
-        page.goto(url)
-        time.sleep(random.uniform(5, 8))
-
-        html = page.content()
-        with open("avito_page.html", "w", encoding="utf-8") as f:
-            f.write(html)
-
-        if "Действие заблокировано" in html or "подозрительная активность" in html:
-            print("❌ Доступ к странице заблокирован Avito")
-            return []
-
-        print("⏳ Ждём загрузку объявлений...")
-        page.wait_for_selector("a[itemprop='url']", timeout=15000)
-
-        # Прокрутка страницы
-        for i in range(5):
-            print(f"👉 Прокрутка {i+1} из 5...")
-            page.evaluate("window.scrollBy(0, 800)")
-            time.sleep(random.uniform(3, 6))
-
-        # Получаем уникальные ссылки
-        links = page.locator("a[itemprop='url']").all_attribute_values("href")
-        full_links = list(set(["https://www.avito.ru"  + link for link in links if "/prodam-" in link]))
-        print(f"✅ Найдено {len(full_links)} объявлений от частных лиц")
-        return full_links
-
+        return True
     except Exception as e:
-        print("❌ Ошибка при загрузке объявлений:", e)
+        log(f"⚠️ Ошибка при нажатии кнопки: {e}")
+        await save_screenshot(page, "click_error")
+        return False
+
+
+async def send_messages_to_chat(page):
+    try:
+        textarea = await page.query_selector("textarea[data-marker='message-input']")
+        if not textarea:
+            log("❌ Поле ввода сообщения не найдено")
+            return False
+
+        messages = random.choice(MESSAGE_VARIANTS)
+        for msg in messages:
+            await textarea.fill(msg)
+            await textarea.press("Enter")
+            log(f"✉️ Отправлено: {msg}")
+            await page.wait_for_timeout(DELAY_BETWEEN_ACTIONS * 1000)
+
+        return True
+    except Exception as e:
+        log(f"⚠️ Ошибка при отправке сообщений: {e}")
+        await save_screenshot(page, "send_error")
+        return False
+
+
+async def process_advertisement(page, ad_url):
+    try:
+        log(f"🔗 Обрабатываем объявление: {ad_url}")
+        await page.goto(ad_url, timeout=60000)
+        await page.wait_for_timeout(DELAY_BETWEEN_ACTIONS * 1000)
+
+        # Пропускаем объявления компаний
+        company_check = await page.query_selector("text=Компания")
+        if company_check:
+            log("⏭️ Пропускаем объявление компании")
+            return False
+
+        # Нажимаем кнопку "Написать сообщение"
+        if not await click_write_message_button(page):
+            return False
+
+        # Отправляем сообщения
+        if not await send_messages_to_chat(page):
+            return False
+
+        # Сохраняем информацию о чате
+        chat_url = page.url
+        seller_id = chat_url.split('/')[-2]
+        ad_id = ad_url.split('_')[-1].split('?')[0]
+        save_message(ad_id, seller_id, chat_url)
+
+        return True
+    except Exception as e:
+        log(f"⚠️ Ошибка при обработке объявления: {e}")
+        await save_screenshot(page, "ad_error")
+        return False
+
+
+async def collect_ad_links(page):
+    try:
+        await page.goto(CITY_URL, timeout=60000)
+        await page.wait_for_selector("div[data-marker='item']", timeout=15000)
+
+        ad_elements = await page.query_selector_all("div[data-marker='item']")
+        ad_links = []
+
+        for el in ad_elements[:MAX_ADS]:
+            link = await el.query_selector("a[itemprop='url']")
+            if link:
+                href = await link.get_attribute("href")
+                full_url = f"https://www.avito.ru{href}"
+                ad_links.append(full_url)
+
+        log(f"🔍 Найдено {len(ad_links)} объявлений")
+        return ad_links
+    except Exception as e:
+        log(f"⚠️ Ошибка при поиске объявлений: {e}")
+        await save_screenshot(page, "ads_error")
         return []
 
 
-# === Отправка сообщения по варианту 1 ===
-def send_message_variant_1(page, ad_url):
-    print(f"📩 Отправляем сообщение по объявлению: {ad_url}")
-    try:
-        page.goto(ad_url + "/contact")
-        time.sleep(random.uniform(4, 7))
+async def run_bot():
+    log("🚀 Запускаем бота")
+    init_db()
 
-        messages = [
-            "Здравствуйте!",
-            "Понравилось ваше объявление!",
-            "Еще продаете?",
-            "Скажите, вы риелтор?"
-        ]
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=HEADLESS,
+            args=["--start-maximized"] if not HEADLESS else []
+        )
 
-        message_box = page.locator("#message-textarea")
+        context = await browser.new_context(
+            viewport=None if not HEADLESS else {"width": 1920, "height": 1080},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            storage_state='avito_cookies.json' if os.path.exists('avito_cookies.json') else None
+        )
 
-        for msg in messages:
-            message_box.fill(msg)
-            page.click("button[form='message-form']")
-            print(f"📨 Отправлено: {msg}")
-            time.sleep(random.uniform(2, 4))
-        print("✅ Сообщение успешно отправлено\n")
-    except Exception as e:
-        print(f"❌ Ошибка при отправке сообщения: {e}\n")
+        page = await context.new_page()
 
+        try:
+            ad_links = await collect_ad_links(page)
+            if not ad_links:
+                log("❌ Не найдено объявлений для обработки")
+                return
 
-# === Основная функция запуска бота ===
-def main():
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    ]
-    ua = random.choice(user_agents)
-    print(f"🌍 Используем User-Agent: {ua}")
+            for ad_url in ad_links:
+                success = await process_advertisement(page, ad_url)
+                if success:
+                    log(f"✅ Успешно обработано: {ad_url}")
+                else:
+                    log(f"❌ Не удалось обработать: {ad_url}")
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=HEADLESS)
-        context = browser.new_context(user_agent=ua)
-        page = context.new_page()
+                await page.wait_for_timeout(DELAY_BETWEEN_ACTIONS * 1000 * 2)
 
-        if not login_avito(page):
-            print("❌ Авторизация не пройдена")
-            return
-
-        ads = get_private_ads(page)
-        sent_count = 0
-
-        for ad in ads:
-            if sent_count >= MAX_MESSAGES:
-                print("⚠️ Достигнут лимит в 20 сообщений за день.")
-                break
-            try:
-                send_message_variant_1(page, ad)
-                sent_count += 1
-                time.sleep(random.uniform(10, 15))
-            except Exception as e:
-                print(f"❌ Ошибка при работе с объявлением {ad}: {e}")
-
-        print(f"✅ Сегодня отправлено: {sent_count} сообщений")
-
-        context.close()
-        browser.close()
+        except Exception as e:
+            log(f"🚨 Критическая ошибка: {e}")
+            await save_screenshot(page, "critical_error")
+        finally:
+            await context.storage_state(path="avito_cookies.json")
+            await browser.close()
+            log("🏁 Работа бота завершена")
 
 
-# === Запуск скрипта ===
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    asyncio.run(run_bot())
