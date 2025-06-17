@@ -58,9 +58,11 @@ def remove_from_file(filename, data):
 
 def get_last_message_text(driver):
     # получение послдених сообщений клиента
+    pass
 
 def send_message(driver, message):
     # функция отправки сообщений
+    pass
 
 def get_wait_time(delay_entry):
     try:
@@ -73,6 +75,8 @@ def get_wait_time(delay_entry):
 
 def handle_dialog(driver, dialog, dialog_url, is_unread=False):
     # основная обработка всех диалогов
+    pass
 
 def check_unread_messages(driver):
     # проверка непрочитанных диалогов
+    pass
